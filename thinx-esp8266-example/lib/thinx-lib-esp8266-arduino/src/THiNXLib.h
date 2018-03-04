@@ -9,14 +9,14 @@
 
 // Provides placeholder for THINX_FIRMWARE_VERSION_SHORT
 #ifndef VERSION
-#define VERSION "2.1.160"
+#define VERSION "2.1.165"
 #endif
 
 #ifndef THX_REVISION
 #ifdef THINX_FIRMWARE_VERSION_SHORT
 #define THX_REVISION THINX_FIRMWARE_VERSION_SHORT
 #else
-#define THX_REVISION "160"
+#define THX_REVISION "165"
 #endif
 #endif
 
@@ -43,10 +43,12 @@ class THiNX {
 
 public:
 
+    // Variables that can be injected into THiNX class before initial checkin...
     static double latitude;
     static double longitude;
     static String statusString;
 
+    // Disable the WiFi Manager if you don't use or don't need one.
 #ifdef __USE_WIFI_MANAGER__
     static WiFiManagerParameter *api_key_param;
     static WiFiManagerParameter *owner_param;
@@ -87,13 +89,14 @@ public:
 
     // MQTT
     PubSubClient *mqtt_client = NULL;
-
+    char mqtt_device_channel[128];
+    char mqtt_device_channels[128];
+    char mqtt_device_status_channel[128];
     String thinx_mqtt_channel();
-    char mqtt_device_channel[128]; //  = {0}
+    String thinx_mqtt_channels();
     String thinx_mqtt_status_channel();
-    char mqtt_device_status_channel[128]; //  = {0}
 
-    // Import build-time values from thinx.h
+    // Values imported on from thinx.h
     const char* app_version;                  // max 80 bytes
     const char* available_update_url;         // up to 1k
     const char* thinx_cloud_url;              // up to 1k but generally something where FQDN fits
@@ -116,6 +119,7 @@ public:
 
     void setPushConfigCallback( void (*func)(String) );
     void setFinalizeCallback( void (*func)(void) );
+    void setMQTTCallback( void (*func)(String) );
 
     int wifi_connection_in_progress;
 
@@ -124,13 +128,20 @@ public:
 
     // MQTT Support
     void publishStatus(String);               // send String to status channel
+    void publishStatusUnretained(String);     // send String to status channel (unretained)
+    void publishStatusRetain(String, bool);   // send String to status channel (optionally retained)
     void publish(String, String, bool);       // send String to any channel, optinally with retain
 
     void setStatus(String);
+    void setCheckinInterval(long interval);
+    void setRebootInterval(long interval);
+
+    unsigned long epoch();                    // estimated timestamp since last checkin as
+    String time();                            // estimated current Time
 
 private:
 
-    bool connected;                         // WiFi connected in station mode
+    bool connected;                           // WiFi connected in station mode
     bool info_loaded = false;
 
     static char* thinx_api_key;
@@ -183,6 +194,12 @@ private:
     void parse(String);
     void update_and_reboot(String);
 
+    unsigned long checkin_timeout;          // next timeout millis()
+    unsigned long checkin_interval = 3600 * 1000;  // can be set externaly, defaults to 1h
+
+    unsigned long reboot_timeout;          // next timeout millis()
+    unsigned long reboot_interval = 86400 * 1000;  // can be set externaly, defaults to 24h
+
     // MQTT
     bool start_mqtt();                      // connect to broker and subscribe
     int mqtt_result;                       // success or failure on connection
@@ -193,6 +210,7 @@ private:
     int all_done;                              // finalize flag
 
     void (*_config_callback)(String) = NULL;  // Called when server pushes new environment vars using MQTT
+    void (*_mqtt_callback)(String) = NULL;
 
     // Data Storage
     void import_build_time_constants();     // sets variables from thinx.h file
@@ -218,4 +236,7 @@ private:
     unsigned long wifi_wait_timeout;
     int wifi_retry;
     uint8_t wifi_status;
+
+    unsigned long last_checkin_timestamp = 0;
+    unsigned long last_checkin_millis = 0;
 };

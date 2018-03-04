@@ -14,19 +14,8 @@ extern "C" {
 #endif
 
 #ifndef THINX_COMMIT_ID
-#define THINX_COMMIT_ID "c2d13320cca4df4149bc94e7c19692299eca3fcf"
+#define THINX_COMMIT_ID "c680610df8457bb634cbaa80ce00b2b761208347"
 #endif
-
-/* Debug tools (should be extradited from Release builds) */
-register uint32_t *sp asm("a1");
-
-void printStackHeap(String tag) {
-  uint32_t memfree = system_get_free_heap_size(); Serial.print(F("*TH: memfree = ")); Serial.println(memfree);
-  Serial.printf("*TH: loop(): unmodified stack   = %4d\n", cont_get_free_stack(&g_cont));
-  Serial.printf("*TH: loop(): current free stack = %4d\n", 4 * (sp - g_cont.stack));
-  Serial.print("*TH: loop(): heap = "); Serial.println(system_get_free_heap_size());
-  Serial.print("*TH: loop(): tag = "); Serial.println(tag);
-}
 
 char* THiNX::thinx_api_key;
 char* THiNX::thinx_owner_key;
@@ -39,10 +28,6 @@ WiFiManagerParameter * THiNX::api_key_param;
 WiFiManagerParameter * THiNX::owner_param;
 
 void THiNX::saveConfigCallback() {
-
-#ifdef __DEBUG__
-  printStackHeap("safeConfigCallback");
-#endif
 
   Serial.println(F("* TH: WiFiManager's saveConfigCallback called. Counfiguration should be saved now!"));
   should_save_config = true;
@@ -127,6 +112,9 @@ THiNX::THiNX(const char * __apikey, const char * __owner_id) {
   thinx_api_key = strdup("");
   thinx_forced_update = false;
 
+  checkin_interval = millis() + checkin_timeout / 4; // retry faster before first checkin
+  reboot_interval = millis() + reboot_timeout;
+
   // will be loaded from SPIFFS/EEPROM or retrieved on Registration later
   if (strlen(__owner_id) == 0) {
     thinx_owner = strdup("");
@@ -150,7 +138,7 @@ THiNX::THiNX(const char * __apikey, const char * __owner_id) {
   #endif
 
   if (strlen(__apikey) > 4) {
-    Serial.print(F("*TH: With custom API Key..."));
+    Serial.println(F("*TH: With custom API Key..."));
     thinx_api_key = strdup(__apikey);
   } else {
       if (strlen(thinx_api_key) > 4) {
@@ -162,7 +150,7 @@ THiNX::THiNX(const char * __apikey, const char * __owner_id) {
   }
 
   if (strlen(__owner_id) > 4) {
-    Serial.print(F("*TH: With custom Owner ID..."));
+    Serial.println(F("*TH: With custom Owner ID..."));
     thinx_owner = strdup(__owner_id);
   } else {
       if (strlen(thinx_owner) > 4) {
@@ -268,10 +256,6 @@ void THiNX::connect_wifi() {
   return;
   #else
 
-#ifdef __DEBUG__
-  printStackHeap("connect_wifi");
-#endif
-
   if (connected) {
     return;
   }
@@ -333,6 +317,7 @@ void THiNX::checkin() {
     Serial.println(F("*TH: Cannot checkin while not connected, exiting."));
   } else {
     senddata(checkin_body());
+    checkin_interval = millis() + checkin_timeout;
   }
 }
 
@@ -427,8 +412,6 @@ void THiNX::senddata(String body) {
     long interval = 30000;
     unsigned long currentMillis = millis(), previousMillis = millis();
 
-    Serial.println(F("*TH: Waiting for HTTP response..."));
-
     // Wait until client available or timeout...
     while(!thx_wifi_client.available()){
       delay(1);
@@ -464,7 +447,6 @@ void THiNX::senddata(String body) {
 void THiNX::parse(String payload) {
 
   // TODO: Should parse response only for this device_id (which must be internal and not a mac)
-  // printStackHeap("json-parser");
 
   payload_type ptype = Unknown;
 
@@ -508,7 +490,6 @@ void THiNX::parse(String payload) {
   String body = payload.substring(start_index, endIndex);
 
 #ifdef __DEBUG__
-  printStackHeap("parse");
   Serial.print(F("*TH: Parsing response:\n'"));
   Serial.print(body);
   Serial.println("'");
@@ -691,6 +672,13 @@ void THiNX::parse(String payload) {
           thinx_forced_update = (bool)registration[F("forced_update")];
         }
 
+        if (registration.containsKey(F("timestamp"))) {
+          Serial.println("Updating time...");
+          last_checkin_timestamp = (long)registration[F("timestamp")];
+          last_checkin_millis = millis();
+          //setTime(last_checkin_timestamp); TODO: FIXME:requires Time.h somehow...
+        }
+
         save_device_info();
 
       } else if (status == "FIRMWARE_UPDATE") {
@@ -786,10 +774,32 @@ String THiNX::thinx_mqtt_channel() {
   return String(mqtt_device_channel);
 }
 
+String THiNX::thinx_mqtt_channels() {
+  sprintf(mqtt_device_channels, "/%s/%s/#", thinx_owner, thinx_udid);
+  return String(mqtt_device_channels);
+}
+
 // TODO: Should be called only on init and update (and store result for later)
 String THiNX::thinx_mqtt_status_channel() {
   sprintf(mqtt_device_status_channel, "/%s/%s/status", thinx_owner, thinx_udid);
   return String(mqtt_device_status_channel);
+}
+
+unsigned long THiNX::epoch() {
+  unsigned long since_last_checkin = (millis() - last_checkin_millis) / 1000;
+  return last_checkin_timestamp + since_last_checkin;
+}
+
+String THiNX::time() {
+  unsigned long stamp = THiNX::epoch();
+    String time_representation = String((time_unix % 86400L) / 3600);
+    time_representation += ":";
+    if ( ((time_unix % 3600) / 60) < 10 ) {
+        // In the first 10 minutes of each hour, we'll want a leading '0'
+        time_representation += "0";
+    }
+    time_representation += String((time_unix % 3600) / 60);
+    return String(time_representation);
 }
 
 /*
@@ -836,10 +846,22 @@ void THiNX::notify_on_successful_update() {
 */
 
 void THiNX::publishStatus(String message) {
+  publishStatusRetain(message, true);
+}
+
+void THiNX::publishStatusUnretained(String message) {
+  publishStatusRetain(message, false);
+}
+
+void THiNX::publishStatusRetain(String message, bool retain) {
   if (mqtt_client != NULL) {
-    mqtt_client->publish(
-      MQTT::Publish(mqtt_device_status_channel, message.c_str()).set_retain()
-    );
+    if (retain) {
+      mqtt_client->publish(
+        MQTT::Publish(mqtt_device_status_channel, message.c_str()).set_retain()
+      );
+    } else {
+      mqtt_client->publish(mqtt_device_status_channel, message.c_str());
+    }
     mqtt_client->loop();
   } else {
     Serial.println(F("*TH: MQTT not active."));
@@ -889,26 +911,14 @@ bool THiNX::start_mqtt() {
     return false;
   }
 
-  Serial.print(F("*TH: UDID: ")); Serial.println(thinx_udid);
-  Serial.print(F("*TH: Contacting MQTT server ")); Serial.println(thinx_mqtt_url);
-  Serial.print(F("*TH: MQTT client with URL ")); Serial.println(thinx_mqtt_url); Serial.flush();
-
+  Serial.println(F("*TH: Contacting MQTT server..."));
   mqtt_client = new PubSubClient(thx_wifi_client, thinx_mqtt_url);
-
-  Serial.print(F(" started on port "));
-  Serial.println(thinx_mqtt_port);
-
   last_mqtt_reconnect = 0;
 
   if (strlen(thinx_api_key) < 5) {
     Serial.println(F("*TH: API Key not set, exiting."));
     return false;
   }
-
-  Serial.print(F("*TH: AK: "));
-  Serial.println(thinx_api_key);
-  Serial.print(F("*TH: DCH: "));
-  Serial.println(thinx_mqtt_channel());
 
   const char* id = thinx_mac();
   const char* user = thinx_udid;
@@ -917,26 +927,18 @@ bool THiNX::start_mqtt() {
   int willQos = 0;
   bool willRetain = false;
 
-  delay(1);
-
-  Serial.println(F("*TH: Connecting to MQTT..."));
-
   if (mqtt_client->connect(MQTT::Connect(id)
   .set_will(willTopic.c_str(), F("{ \"status\" : \"disconnected\" }"))
   .set_auth(user, pass)
-  .set_keepalive(30)
+  .set_keepalive(60)
 )) {
-
-  Serial.println(F("*TH: mqtt_client->connected()!"));
 
   mqtt_connected = true;
   performed_mqtt_checkin = true;
 
   mqtt_client->set_callback([this](const MQTT::Publish &pub){
 
-    delay(1);
-
-    // >
+    // Never tested...
     if (pub.has_stream()) {
 
       Serial.println(F("*TH: MQTT Type: Stream..."));
@@ -944,7 +946,6 @@ bool THiNX::start_mqtt() {
       uint32_t size = pub.payload_len();
 
       if ( ESP.updateSketch(*pub.payload_stream(), size, true, false) ) {
-
         // Notify on reboot for update
         mqtt_client->publish(
           mqtt_device_status_channel,
@@ -966,6 +967,9 @@ bool THiNX::start_mqtt() {
       Serial.println(F("*TH: MQTT Type: String or JSON..."));
       Serial.println(pub.payload_string());
       parse(pub.payload_string());
+        if (_mqtt_callback) {
+            _mqtt_callback(pub.payload_string());
+        }
     }
   }); // end-of-callback
 
@@ -1035,7 +1039,7 @@ void THiNX::restore_device_info() {
 
   #else
   if (!SPIFFS.exists("/thx.cfg")) {
-    Serial.println(F("*TH: No persistent data found."));
+    Serial.println(F("*TH: No saved configuration."));
     return;
   }
   File f = SPIFFS.open("/thx.cfg", "r");
@@ -1124,11 +1128,10 @@ void THiNX::save_device_info()
   #ifdef __USE_SPIFFS__
   File f = SPIFFS.open("/thx.cfg", "w");
   if (f) {
-    Serial.println(F("*TH: saving configuration to SPIFFS..."));
+    Serial.println(F("*TH: Saving configuration to SPIFFS..."));
     f.println(String((char*)json_info)); // String instead of const char* due to LoadStoreAlignmentCause...
-    Serial.println(F("*TH: closing file..."));
     f.close();
-    delay(1);
+    Serial.println(F("*TH: Saved configuration (SPIFFS)."));
   }
   #else
   Serial.println(F("*TH: Saving configuration to EEPROM: "));
@@ -1138,7 +1141,7 @@ void THiNX::save_device_info()
     if (byte == 0) break;
   }
   EEPROM.commit();
-  Serial.println(F("*TH: EEPROM data committed..."));
+  Serial.println(F("*TH: Saved configuration (EEPROM)."));
   #endif
 }
 
@@ -1148,8 +1151,6 @@ void THiNX::save_device_info()
 
 void THiNX::deviceInfo() {
 
-  Serial.println(F("*TH: Building device info:"));
-
   DynamicJsonBuffer jsonBuffer(512);
   JsonObject& root = jsonBuffer.createObject();
 
@@ -1158,38 +1159,23 @@ void THiNX::deviceInfo() {
   if (strlen(thinx_owner) > 1) {
     root["owner"] = thinx_owner; // allow owner change
   }
-  Serial.print(F("*TH: thinx_owner: "));
-  Serial.println(thinx_owner);
 
   if (strlen(thinx_api_key) > 1) {
     root["apikey"] = thinx_api_key; // allow dynamic API Key
   }
-  Serial.print(F("*TH: thinx_api_key: "));
-  Serial.println(thinx_api_key);
 
   if (strlen(thinx_udid) > 1) {
     root["udid"] = thinx_udid; // allow setting UDID, skip 0
   }
-  Serial.print(F("*TH: thinx_udid: "));
-  Serial.println(thinx_udid);
-
-  if (strlen(thinx_udid) > 1) {
-    root["udid"] = thinx_udid; // allow setting UDID, skip 0
-  }
-  Serial.print(F("*TH: thinx_udid: "));
-  Serial.println(thinx_udid);
 
   // Optionals
   if (strlen(available_update_url) > 1) {
     root["update"] = available_update_url; // allow update
-    Serial.print(F("*TH: available_update_url: "));
-    Serial.println(available_update_url);
+    Serial.println(F("*TH: available_update_url..."));
   }
 
   json_output = "";
-  Serial.print(F("*TH: Building JSON: "));
   root.printTo(json_output);
-  Serial.println(json_output);
 }
 
 /*
@@ -1254,8 +1240,6 @@ void THiNX::update_and_reboot(String url) {
 
 void THiNX::import_build_time_constants() {
 
-  Serial.println(F("*TH: Importing build-time constants..."));
-
   // Only if not overridden by user
   if (strlen(thinx_api_key) < 4) {
     thinx_api_key = strdup(THINX_API_KEY);
@@ -1285,8 +1269,6 @@ void THiNX::import_build_time_constants() {
   thinx_firmware_version = strdup(THINX_FIRMWARE_VERSION);
   thinx_firmware_version_short = strdup(THINX_FIRMWARE_VERSION_SHORT);
   app_version = strdup(THINX_APP_VERSION);
-
-  Serial.println(F("*TH: Loaded build-time constants..."));
 }
 
 /*
@@ -1299,16 +1281,14 @@ bool THiNX::fsck() {
   bool flashCorrectlyConfigured = realSize.equals(ideSize);
   bool fileSystemReady = false;
   if(flashCorrectlyConfigured) {
-    Serial.println(F("* TH: Starting SPIFFS..."));
     fileSystemReady = SPIFFS.begin();
     if (!fileSystemReady) {
-      Serial.println(F("* TH: Formatting SPIFFS..."));
+      Serial.println(F("* TH: Initializing SPIFFS..."));
       fileSystemReady = SPIFFS.format();;
       Serial.println(F("* TH: Format complete, rebooting...")); Serial.flush();
       ESP.restart();
       return false;
     }
-    Serial.println(F("* TH: SPIFFS Initialization completed."));
   }  else {
     Serial.print(F("*TH: Flash incorrectly configured, SPIFFS cannot start, IDE size: "));
     Serial.println(ideSize + ", real size: " + realSize);
@@ -1351,13 +1331,16 @@ void THiNX::setFinalizeCallback( void (*func)(void) ) {
   _finalize_callback = func;
 }
 
+void THiNX::setMQTTCallback( void (*func)(String) ) {
+    _mqtt_callback = func;
+}
+
 void THiNX::finalize() {
   thinx_phase = COMPLETED;
   if (_finalize_callback) {
-    Serial.println(F("*TH: Checkin completed, calling finalize_callback()"));
     _finalize_callback();
   } else {
-    Serial.println(F("*TH: Checkin completed (no _finalize_callback set)."));
+    Serial.println(F("*TH: Checkin completed (no _finalize_callback)."));
   }
 }
 
@@ -1420,7 +1403,6 @@ void THiNX::loop() {
   if (thinx_phase == CHECKIN_MQTT) {
     thinx_mqtt_channel(); // initialize channel variable
     if (strlen(mqtt_device_channel) > 5) {
-      Serial.println(F("*TH: MQTT Subscribing device channel from loop..."));
       if (mqtt_client->subscribe(mqtt_device_channel)) {
         Serial.print(F("*TH: MQTT device topic: "));
         Serial.print(mqtt_device_channel);
@@ -1439,7 +1421,6 @@ void THiNX::loop() {
 
   if ( thinx_phase == CONNECT_MQTT ) {
     if (strlen(thinx_udid) > 4) {
-      Serial.println(F("*TH: WiFi connected, starting MQTT..."));
       mqtt_result = start_mqtt(); // connect only, do not checkin (subscribe) yet...
       mqtt_client->loop();
       if (mqtt_result == true) {
@@ -1452,6 +1433,14 @@ void THiNX::loop() {
   }
 
   // CASE thinx_phase == CONNECT_API
+
+  // Force re-checkin after specified interval
+  if (millis() > checkin_timeout) {
+    if (checkin_interval > 0) {
+      thinx_phase == CONNECT_API;
+      checkin_interval = millis() + checkin_timeout;
+    }
+  }
 
   // If connected, perform the MQTT loop and bail out ASAP
   if (thinx_phase == CONNECT_API) {
@@ -1466,7 +1455,6 @@ void THiNX::loop() {
   }
 
   if ( thinx_phase == FINALIZE ) {
-    Serial.println(F("*TH: Calling finalize()... "));
     finalize();
   }
 
@@ -1474,6 +1462,11 @@ void THiNX::loop() {
     if (mqtt_result == true) {
       mqtt_client->loop();
     }
+  }
+
+  if ( millis() > reboot_interval ) {
+    setStatus("Rebooting...");
+    ESP.restart();
   }
 
   #ifdef __USE_WIFI_MANAGER__
@@ -1503,6 +1496,14 @@ void THiNX::setStatus(String newstatus) {
     String message = String("{ \"status\" : \"") + newstatus + String("\" }");
     mqtt_client->publish(mqtt_device_status_channel, message.c_str());
   }
+}
+
+void THiNX::setCheckinInterval(long interval) {
+  checkin_interval = interval;
+}
+
+void THiNX::setRebootInterval(long interval) {
+  reboot_interval = interval;
 }
 
 #endif // IMPORTANT LINE FOR UNIT-TESTING!
