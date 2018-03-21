@@ -9,14 +9,14 @@
 
 // Provides placeholder for THINX_FIRMWARE_VERSION_SHORT
 #ifndef VERSION
-#define VERSION "2.1.165"
+#define VERSION "2.1.172"
 #endif
 
 #ifndef THX_REVISION
 #ifdef THINX_FIRMWARE_VERSION_SHORT
 #define THX_REVISION THINX_FIRMWARE_VERSION_SHORT
 #else
-#define THX_REVISION "165"
+#define THX_REVISION "170"
 #endif
 #endif
 
@@ -43,12 +43,12 @@ class THiNX {
 
 public:
 
-    // Variables that can be injected into THiNX class before initial checkin...
     static double latitude;
     static double longitude;
     static String statusString;
+    static String accessPointName;
+    static String accessPointPassword;
 
-    // Disable the WiFi Manager if you don't use or don't need one.
 #ifdef __USE_WIFI_MANAGER__
     static WiFiManagerParameter *api_key_param;
     static WiFiManagerParameter *owner_param;
@@ -115,7 +115,8 @@ public:
     // dynamic variables
     char* thinx_alias;
     char* thinx_owner;
-    char* thinx_udid;
+
+    char * get_udid();
 
     void setPushConfigCallback( void (*func)(String) );
     void setFinalizeCallback( void (*func)(void) );
@@ -133,15 +134,20 @@ public:
     void publish(String, String, bool);       // send String to any channel, optinally with retain
 
     void setStatus(String);
+    static const char time_format[];
+    static const char date_format[];
+
+    long epoch();                    // estimated timestamp since last checkin as
+    String time(const char*);                            // estimated current Time
+    String date(const char*);                            // estimated current Date
     void setCheckinInterval(long interval);
     void setRebootInterval(long interval);
 
-    unsigned long epoch();                    // estimated timestamp since last checkin as
-    String time();                            // estimated current Time
-
 private:
 
-    bool connected;                           // WiFi connected in station mode
+    char* thinx_udid;
+
+    bool wifi_connected;                         // WiFi connected in station mode
     bool info_loaded = false;
 
     static char* thinx_api_key;
@@ -194,11 +200,14 @@ private:
     void parse(String);
     void update_and_reboot(String);
 
-    unsigned long checkin_timeout;          // next timeout millis()
-    unsigned long checkin_interval = 3600 * 1000;  // can be set externaly, defaults to 1h
+    long checkin_timeout;          // next timeout millis()
+    long checkin_interval = 3600 * 1000;  // can be set externaly, defaults to 1h
 
-    unsigned long reboot_timeout;          // next timeout millis()
-    unsigned long reboot_interval = 86400 * 1000;  // can be set externaly, defaults to 24h
+    long last_checkin_millis;
+    long last_checkin_timestamp;
+
+    long reboot_timeout;          // next timeout millis()
+    long reboot_interval = 86400 * 1000;  // can be set externaly, defaults to 24h
 
     // MQTT
     bool start_mqtt();                      // connect to broker and subscribe
@@ -236,7 +245,4 @@ private:
     unsigned long wifi_wait_timeout;
     int wifi_retry;
     uint8_t wifi_status;
-
-    unsigned long last_checkin_timestamp = 0;
-    unsigned long last_checkin_millis = 0;
 };
