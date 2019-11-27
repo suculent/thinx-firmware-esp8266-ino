@@ -44,7 +44,7 @@ For properly configuring the `.board` file (preset to ESP8266/Wemos D1 Mini) see
 
 1. Create account on the [http://rtm.thinx.cloud/](http://rtm.thinx.cloud/) site
 2. Create an API Key
-3. Clone [vanilla NodeMCU app repository](https://github.com/suculent/thinx-firmware-esp8266) 
+3. Clone [repository](https://github.com/suculent/thinx-firmware-esp8266-ino) 
 4. Run the bash ./prerelease.sh to create Thinx.h file; you can edit this with your custom information but the file will be overwritten when building on the server
 5. You can store Owner ID and API Key in Thinx.h file in case your project is not stored in public repository. Otherwise make sure WiFiManager is enabled in THiNXLib.h to copy-paste those values to Captive Portal later.
 6. Build and upload the code to your device.
