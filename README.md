@@ -31,6 +31,8 @@ Provides example implementations for ESP8266 with Arduino IDE.
 
 # Installation
 
+[![Instruction video for OS X](https://img.youtube.com/vi/N5abfKJzsd0/0.jpg)](https://www.youtube.com/watch?v=N5abfKJzsd0 "Installation")
+
 ## Arduino IDE
 
 Search for `THiNXLib` in Arduino Library Manager and install all other dependencies... or you can just copy then from the `lib` folder if you prefer tested versions before the latest.
@@ -45,11 +47,13 @@ For properly configuring the `.board` file (preset to ESP8266/Wemos D1 Mini) see
 1. Create account on the [http://rtm.thinx.cloud/](http://rtm.thinx.cloud/) site
 2. Create an API Key
 3. Clone [repository](https://github.com/suculent/thinx-firmware-esp8266-ino) 
-4. Run the bash ./prerelease.sh to create Thinx.h file; you can edit this with your custom information but the file will be overwritten when building on the server
-5. You can store Owner ID and API Key in Thinx.h file in case your project is not stored in public repository. Otherwise make sure WiFiManager is enabled in THiNXLib.h to copy-paste those values to Captive Portal later.
-6. Build and upload the code to your device.
-7. After restart, connect with some device to WiFi AP 'AP-THiNX' and enter the API Key / Owner ID if you haven't hardcoded those in step 4.
-8. Device will connect to WiFi and register itself. Check your thinx.cloud dashboard for new device.
+4. Pull all the dependencies using `git submodule update --init --recursive`
+5. Copy all included libraries to your `~/Documents/Arduino/libraries` folder (on Mac)
+6. Run the bash ./prerelease.sh to create Thinx.h file; you can edit this with your custom information but the file will be overwritten when building on the server
+7. You can store Owner ID and API Key in Thinx.h file in case your project is not stored in public repository. Otherwise make sure WiFiManager is enabled in THiNXLib.h to copy-paste those values to Captive Portal later.
+8. Build and upload the code to your device.
+9. After restart, connect with some device to WiFi AP 'AP-THiNX' and enter the API Key / Owner ID if you haven't hardcoded those in step 4.
+10. Device will connect to WiFi and register itself. Check your thinx.cloud dashboard for new device.
 
 ... Then you can add own git source, add ssh-keys to access those sources if not public, attach the source to device to dashboard and click the last icon in row to build/update the device. 
 
