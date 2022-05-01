@@ -6,7 +6,7 @@
 
 // Import SSID, PASSWORD and API KEY from file not included in repository
 #ifndef THINXCI
-#import "settings.h"
+#include "settings.h"
 #else
 // Those are just dummy demo values. Never store those in public repository!
 // Save them to settings.h and use .gitigore to keep file on your machine only.
@@ -22,7 +22,7 @@ const char *pass = "<enter-your-ssid-password>";
 
 THiNX thx;
 
-/* Called after library gets connected and registered */
+// Called after library gets connected and registered
 void finalizeCallback () {
   Serial.println("*INO: Finalize callback called.");
   ESP.deepSleep(3e9);
@@ -44,7 +44,7 @@ void setup() {
   thx.setFinalizeCallback(finalizeCallback);
 }
 
-/* Loop must call the thx.loop() in order to pickup MQTT messages and advance the state machine. */
+// Loop must call the thx.loop() in order to pickup MQTT messages and advance the state machine.
 void loop()
 {
   thx.loop();

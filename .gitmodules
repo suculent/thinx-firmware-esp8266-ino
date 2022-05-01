@@ -1,9 +1,3 @@
 [submodule "thinx-esp8266-example/lib/thinx-lib-esp8266-arduino"]
 	path = thinx-esp8266-example/lib/thinx-lib-esp8266-arduino
 	url = git@github.com:suculent/thinx-lib-esp8266-arduino.git
-[submodule "thinx-esp8266-example/lib/PubSubClient"]
-	path = thinx-esp8266-example/lib/PubSubClient
-	url = https://github.com/Imroy/PubSubClient
-[submodule "thinx-esp8266-example/lib/WiFiManager"]
-	path = thinx-esp8266-example/lib/WiFiManager
-	url = https://github.com/tzapu/WiFiManager
